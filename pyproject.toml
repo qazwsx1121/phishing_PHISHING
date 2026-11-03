@@ -36,3 +36,7 @@ phishguard = ["resources/*", "web/templates/*", "web/static/*"]
 testpaths = ["tests"]
 addopts = "-m 'not network'"
 markers = ["network: requires internet access"]
+filterwarnings = [
+    # Third-party notice from starlette's TestClient (only httpx is installed, not httpx2).
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:starlette.exceptions.StarletteDeprecationWarning",
+]

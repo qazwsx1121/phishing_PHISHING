@@ -1,0 +1,262 @@
+:root {
+  --bg: #f5f6f8;
+  --card: #ffffff;
+  --text: #1f2933;
+  --muted: #5f6b7a;
+  --border: #d9dee5;
+  --accent: #1f4fd8;
+  --safe: #1a7f37;
+  --suspicious: #b45309;
+  --dangerous: #c62828;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  line-height: 1.6;
+}
+
+.container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 16px 32px;
+}
+
+.site-header {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+
+.site-header .container {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.brand {
+  color: var(--text);
+  font-weight: 700;
+  font-size: 1.15rem;
+  text-decoration: none;
+}
+
+.tagline {
+  color: var(--muted);
+  margin-left: 8px;
+  font-size: 0.9rem;
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin: 0 0 12px;
+}
+
+h2 {
+  font-size: 1.05rem;
+  margin: 0 0 8px;
+}
+
+h3 {
+  font-size: 0.95rem;
+  margin: 12px 0 4px;
+}
+
+p {
+  margin-top: 0;
+}
+
+.lead {
+  color: var(--muted);
+  margin: 0 0 20px;
+}
+
+/* form */
+.check-form label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.check-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+input[type="text"] {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  background: #fff;
+  color: var(--text);
+}
+
+button,
+.button {
+  display: inline-block;
+  min-height: 44px;
+  padding: 8px 20px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+input:focus-visible,
+button:focus-visible,
+.button:focus-visible,
+.brand:focus-visible {
+  outline: 3px solid #8aa8ff;
+  outline-offset: 2px;
+}
+
+.error {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--dangerous);
+  border-left-width: 5px;
+  border-radius: 6px;
+  background: #fdecec;
+  color: #8e1b1b;
+}
+
+/* result */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+
+.verdict-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.verdict-caption {
+  color: var(--muted);
+}
+
+.badge {
+  display: inline-block;
+  padding: 4px 18px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.badge-small {
+  padding: 1px 12px;
+  font-size: 0.95rem;
+}
+
+.verdict-safe {
+  background: var(--safe);
+}
+
+.verdict-suspicious {
+  background: var(--suspicious);
+}
+
+.verdict-dangerous {
+  background: var(--dangerous);
+}
+
+dl {
+  margin: 0;
+}
+
+dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 8px;
+}
+
+dt:first-child {
+  margin-top: 0;
+}
+
+dd {
+  margin: 0;
+}
+
+/* analysed URLs are never links; break them anywhere so nothing scrolls sideways */
+.url {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.9rem;
+  word-break: break-all;
+}
+
+.hops {
+  margin: 0;
+  padding-left: 22px;
+}
+
+ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+li,
+dd {
+  overflow-wrap: anywhere;
+}
+
+.status,
+.muted,
+.hint {
+  color: var(--muted);
+}
+
+.hint {
+  font-size: 0.85rem;
+  margin: 8px 0 0;
+}
+
+.disclaimer {
+  margin: 20px 0;
+  padding: 12px 14px;
+  border-left: 5px solid var(--suspicious);
+  background: #fff7e6;
+  font-weight: 600;
+}
+
+@media (min-width: 600px) {
+  .check-row {
+    flex-direction: row;
+  }
+
+  .check-row input[type="text"] {
+    flex: 1;
+    min-width: 0;
+  }
+
+  dl {
+    display: grid;
+    grid-template-columns: 9rem minmax(0, 1fr);
+    column-gap: 12px;
+  }
+
+  dt,
+  dt:first-child,
+  dd {
+    margin-top: 8px;
+  }
+}

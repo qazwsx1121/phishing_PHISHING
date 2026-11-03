@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}검사 결과 - PhishGuard{% endblock %}
+{% block content %}
+<h1>검사 결과</h1>
+
+<section class="card verdict-card">
+  <span class="badge verdict-{{ r.final_verdict }}">{{ labels[r.final_verdict] }}</span>
+  <span class="verdict-caption">최종 판정</span>
+</section>
+
+<section class="card">
+  <h2>검사한 주소</h2>
+  <dl>
+    <dt>입력한 URL</dt>
+    <dd class="url">{{ r.input_url|defang }}</dd>
+    <dt>최종 URL</dt>
+    <dd class="url">{{ r.final_url|defang }}</dd>
+  </dl>
+  <p class="hint">안전을 위해 주소를 클릭할 수 없는 형태(hxxp, [.])로 표시합니다.</p>
+</section>
+
+<section class="card">
+  <h2>리다이렉트 경로</h2>
+  {% if r.redirect.hops %}
+  <ol class="hops">
+    {% for hop in r.redirect.hops %}
+    <li><span class="url">{{ hop.url|defang }}</span> <span class="status">(응답 {{ hop.status_code }})</span></li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p>리다이렉트 없음</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>도메인 정보</h2>
+  <dl>
+    <dt>등록 도메인</dt>
+    <dd>{{ r.domain.registered_domain or "없음" }}</dd>
+    <dt>서브도메인</dt>
+    <dd>{{ r.domain.subdomain or "없음" }}</dd>
+    <dt>도메인 생성일</dt>
+    <dd>{% if r.domain.creation_date %}{{ r.domain.creation_date[:10] }}{% else %}확인 불가{% endif %}</dd>
+    <dt>도메인 나이</dt>
+    <dd>{% if r.domain.age_days is none %}확인 불가{% else %}{{ r.domain.age_days|round|int }}일{% endif %}</dd>
+  </dl>
+</section>
+
+<section class="card">
+  <h2>규칙 기반 판정</h2>
+  <p>
+    <span class="badge badge-small verdict-{{ r.rule.verdict }}">{{ labels[r.rule.verdict] }}</span>
+    점수 {{ r.rule.score }}점
+  </p>
+  <h3>판정 이유</h3>
+  {% if r.rule.hits %}
+  <ul>
+    {% for hit in r.rule.hits %}
+    <li>{{ hit.message }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">해당하는 판정 이유가 없습니다.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>머신러닝 판정</h2>
+  {% if r.model %}
+  <p>
+    <span class="badge badge-small verdict-{{ r.model.verdict }}">{{ labels[r.model.verdict] }}</span>
+    피싱 확률
+    {% if r.model.probability is none %}확인 불가{% else %}{{ "%.1f"|format(r.model.probability * 100) }}%{% endif %}
+  </p>
+  {% else %}
+  <p>학습된 모델 없음</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>경고</h2>
+  {% if r.warnings %}
+  <ul>
+    {% for warning in r.warnings %}
+    <li>{{ warning }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">경고 없음</p>
+  {% endif %}
+</section>
+
+<p class="disclaimer">이 결과는 참고용이며 안전을 보장하지 않습니다. 의심되면 링크를 열지 마세요.</p>
+
+<p><a class="button" href="/">다른 URL 검사하기</a></p>
+{% endblock %}

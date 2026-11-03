@@ -28,6 +28,22 @@ def test_api_empty_url_returns_400(client, payload):
     assert r.status_code == 400 and r.json()["error"] == "URL을 입력해 주세요."
 
 
+@pytest.mark.parametrize(
+    "request_kwargs",
+    [
+        {"json": [1, 2]},
+        {"json": "x"},
+        {"content": b"null", "headers": {"content-type": "application/json"}},
+        {"content": b"{not json", "headers": {"content-type": "application/json"}},
+        {},
+    ],
+    ids=["array", "string", "json-null", "malformed-json", "no-body"],
+)
+def test_api_non_object_or_malformed_body_returns_korean_400(client, request_kwargs):
+    r = client.post("/api/analyze", **request_kwargs)
+    assert r.status_code == 400 and r.json() == {"error": "URL을 입력해 주세요."}
+
+
 def test_api_too_long_url_returns_400(client):
     r = client.post("/api/analyze", json={"url": "http://a.com/" + "a" * 2100})
     assert r.status_code == 400
