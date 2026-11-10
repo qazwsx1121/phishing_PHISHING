@@ -7,6 +7,7 @@ mimics browser behaviour where ``urllib.parse.urlsplit`` differs from it
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from urllib.parse import urlsplit
 
@@ -32,6 +33,7 @@ _HXXP_RE = re.compile(r"^hxxp", re.IGNORECASE)
 _BAD_SCHEME_RE = re.compile(r"^(javascript|data|file|vbscript|mailto):", re.IGNORECASE)
 _HTTP_SEPARATOR_RE = re.compile(r"^(https?):/*", re.IGNORECASE)
 _HAS_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+_BRACKETED_RE = re.compile(r"\[([^\]]*)\](?::[0-9]*)?")
 _HOST_RE = re.compile(r"[a-z0-9_.-]+")
 
 _DEFAULT_PORTS = {"http": 80, "https": 443}
@@ -118,8 +120,18 @@ def normalize_url(raw: str, *, refang: bool = True) -> NormalizedURL:
     if not host:
         raise InvalidURLError(_MSG_FORMAT)
 
-    is_ipv6 = ":" in host
-    if not is_ipv6:
+    netloc = parts.netloc
+    host_part = netloc.rpartition("@")[2]
+    is_ipv6 = host_part.startswith("[")
+    if is_ipv6:
+        m = _BRACKETED_RE.fullmatch(host_part)
+        if not m or "%" in m.group(1):
+            raise InvalidURLError(_MSG_FORMAT)
+        try:
+            host = ipaddress.IPv6Address(m.group(1)).compressed
+        except ValueError as exc:
+            raise InvalidURLError(_MSG_FORMAT) from exc
+    else:
         host = _to_ascii_host(host).lower().rstrip(".")
         if not host or not _HOST_RE.fullmatch(host):
             raise InvalidURLError(_MSG_FORMAT)
@@ -127,7 +139,6 @@ def normalize_url(raw: str, *, refang: bool = True) -> NormalizedURL:
     if port == _DEFAULT_PORTS[scheme]:
         port = None
 
-    netloc = parts.netloc
     userinfo = netloc.rpartition("@")[0] if "@" in netloc else ""
     path = parts.path or "/"
     query = parts.query

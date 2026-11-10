@@ -1,4 +1,6 @@
+import ipaddress
 import random
+import re
 
 import pytest
 
@@ -242,6 +244,39 @@ def test_ipv6_host_is_bracketed():
     assert n.normalized == "http://[2001:db8::1]/x"
 
 
+# ---- Fix round 1: bracketed hosts must be real IPv6 literals ----
+
+@pytest.mark.parametrize("raw", [
+    "http://[fe80::1%eth0]/",
+    "http://[fe80::1%25eth0]/",
+    "http://[v1.x]/",
+    "http://[::1]x/",
+    "http://[::1]:80x/",
+])
+def test_malformed_bracketed_hosts_rejected(raw):
+    with pytest.raises(InvalidURLError, match="올바른 URL 형식이 아닙니다."):
+        normalize_url(raw)
+
+
+@pytest.mark.parametrize("raw, host, normalized", [
+    ("http://[::1]:8080/", "::1", "http://[::1]:8080/"),
+    ("http://[0:0:0:0:0:0:0:1]/", "::1", "http://[::1]/"),
+    ("http://[::ffff:127.0.0.1]/", "::ffff:7f00:1", "http://[::ffff:7f00:1]/"),
+    ("http://[2001:0DB8:0:0:0:0:0:1]/x", "2001:db8::1", "http://[2001:db8::1]/x"),
+    ("http://u@[::1]/", "::1", "http://u@[::1]/"),
+])
+def test_valid_ipv6_is_canonicalised(raw, host, normalized):
+    n = normalize_url(raw)
+    assert n.host == host
+    assert n.normalized == normalized
+
+
+def test_unbracketed_colon_host_is_not_ipv6():
+    for raw in ["http://::1/", "http://a:b:c/", "http://fe80::1/"]:
+        with pytest.raises(InvalidURLError):
+            normalize_url(raw)
+
+
 # ---- Fuzz: only InvalidURLError may escape ----
 
 _FRAGMENTS = [
@@ -252,6 +287,16 @@ _FRAGMENTS = [
     "네이버", "xn--", "xn--950bt9s8xi", "ＡＢＣ", "／", "＠", "＃", "：", "．",
     "::1", "[::1]", "[bad", "99999", "0", "8080", "a" * 70, "-", "_", "é", "ß", "İ",
 ]
+
+
+_HOST_OK = re.compile(r"[a-z0-9_.-]+")
+
+
+def _is_compressed_ipv6(host):
+    try:
+        return ipaddress.IPv6Address(host).compressed == host and "%" not in host
+    except ValueError:
+        return False
 
 
 def _random_text(rng: random.Random) -> str:
@@ -279,6 +324,6 @@ def test_fuzz_only_invalid_url_error_escapes():
             ok += 1
             assert isinstance(n, NormalizedURL)
             assert n.scheme in ("http", "https")
-            assert n.host
+            assert _HOST_OK.fullmatch(n.host) or _is_compressed_ipv6(n.host)
             assert n.normalized.startswith(n.scheme + "://")
     assert ok > 0
