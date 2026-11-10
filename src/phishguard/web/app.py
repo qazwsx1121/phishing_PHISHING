@@ -10,11 +10,10 @@ from fastapi.templating import Jinja2Templates
 
 from phishguard.errors import InvalidURLError
 from phishguard.models import AnalysisResult
+from phishguard.normalize import MAX_URL_LENGTH
 from phishguard.web.presenters import VERDICT_LABELS, defang
 
 logger = logging.getLogger(__name__)
-
-MAX_URL_LENGTH = 2048
 
 _WEB_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = _WEB_DIR / "templates"
