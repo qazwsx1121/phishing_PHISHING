@@ -52,9 +52,18 @@ def _to_utc(value: Any) -> datetime | None:
     """Timezone-aware UTC datetime (naive means UTC); None for non-datetimes."""
     if not isinstance(value, datetime):
         return None
-    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+    try:
+        if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    except OverflowError:  # e.g. year 1 with a positive offset
+        return None
+
+
+def _candidate(value: Any) -> datetime | None:
+    """UTC datetime that is not earlier than the placeholder floor, else None."""
+    dt = _to_utc(value)
+    return dt if dt is not None and dt >= MIN_CREATION_DATE else None
 
 
 def whois_creation_date(domain: str) -> datetime | None:
@@ -71,7 +80,7 @@ def whois_creation_date(domain: str) -> datetime | None:
         if value is None and isinstance(entry, Mapping):
             value = entry.get("creation_date")
         items = value if isinstance(value, (list, tuple)) else [value]
-        dates = [d for d in (_to_utc(i) for i in items) if d is not None]
+        dates = [d for d in (_candidate(i) for i in items) if d is not None]
         return min(dates) if dates else None
     except Exception:  # noqa: BLE001 - WHOIS libraries fail in many ways; all mean "unknown"
         logger.warning("whois lookup failed for %s", domain, exc_info=True)
@@ -93,8 +102,8 @@ def parse_rdap_registration(payload: Any) -> datetime | None:
         if not isinstance(raw, str):
             continue
         try:
-            parsed = _to_utc(datetime.fromisoformat(raw.replace("Z", "+00:00")))
-        except ValueError:
+            parsed = _candidate(datetime.fromisoformat(raw.replace("Z", "+00:00")))
+        except (ValueError, OverflowError):
             continue
         if parsed is not None:
             found.append(parsed)

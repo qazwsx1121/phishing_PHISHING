@@ -34,6 +34,19 @@ def router():
         yield r
 
 
+_CLIENT: httpx.Client | None = None
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _shared_client():
+    # One client for the module: building one per test costs ~0.3 s (SSL context).
+    global _CLIENT
+    _CLIENT = httpx.Client()
+    yield
+    _CLIENT.close()
+    _CLIENT = None
+
+
 @pytest.fixture
 def cache():
     c = TTLCache(":memory:")
@@ -42,7 +55,7 @@ def cache():
 
 
 def make(cache, whois_fn=lambda d: None, now=lambda: NOW, **kw):
-    return DomainAgeLookup(cache, httpx.Client(), whois_fn=whois_fn, now=now, **kw)
+    return DomainAgeLookup(cache, _CLIENT, whois_fn=whois_fn, now=now, **kw)
 
 
 # ---------- parse_rdap_registration ----------
@@ -78,6 +91,30 @@ def test_parse_malformed_payloads_return_none(payload):
     assert parse_rdap_registration(payload) is None
 
 
+@pytest.mark.parametrize("bad", ["0001-01-01T00:00:00+05:00", "9999-12-31T23:59:59-05:00"])
+def test_parse_overflowing_date_alone_is_none(bad):
+    p = {"events": [{"eventAction": "registration", "eventDate": bad}]}
+    assert parse_rdap_registration(p) is None
+
+
+@pytest.mark.parametrize("bad", ["0001-01-01T00:00:00+05:00", "9999-12-31T23:59:59-05:00"])
+def test_parse_overflowing_date_does_not_hide_valid_event(bad):
+    p = {"events": [{"eventAction": "registration", "eventDate": bad},
+                    {"eventAction": "registration", "eventDate": "2020-05-05T00:00:00Z"}]}
+    assert parse_rdap_registration(p) == datetime(2020, 5, 5, tzinfo=UTC)
+
+
+def test_parse_skips_placeholder_before_min():
+    p = {"events": [{"eventAction": "registration", "eventDate": "1970-01-01T00:00:00Z"},
+                    {"eventAction": "registration", "eventDate": "2020-05-05T00:00:00Z"}]}
+    assert parse_rdap_registration(p) == datetime(2020, 5, 5, tzinfo=UTC)
+
+
+def test_parse_only_placeholder_is_none():
+    p = {"events": [{"eventAction": "registration", "eventDate": "1970-01-01T00:00:00Z"}]}
+    assert parse_rdap_registration(p) is None
+
+
 # ---------- whois_creation_date ----------
 
 class _Entry:
@@ -93,6 +130,25 @@ def test_whois_mixed_list_is_normalised(monkeypatch):
     ]
     monkeypatch.setattr(da.whois, "whois", lambda domain, **kw: _Entry(mixed))
     assert whois_creation_date("example.com") == datetime(2019, 1, 1, 10, tzinfo=UTC)
+
+
+def test_whois_overflowing_entry_does_not_hide_valid_one(monkeypatch):
+    overflow = datetime(1, 1, 1, tzinfo=timezone(timedelta(hours=5)))
+    mixed = [overflow, datetime(9999, 12, 31, 23, tzinfo=timezone(timedelta(hours=-5))),
+             datetime(2019, 3, 3)]
+    monkeypatch.setattr(da.whois, "whois", lambda domain, **kw: _Entry(mixed))
+    assert whois_creation_date("example.com") == datetime(2019, 3, 3, tzinfo=UTC)
+
+
+def test_whois_skips_placeholder_before_min(monkeypatch):
+    mixed = [datetime(1970, 1, 1), datetime(2019, 3, 3)]
+    monkeypatch.setattr(da.whois, "whois", lambda domain, **kw: _Entry(mixed))
+    assert whois_creation_date("example.com") == datetime(2019, 3, 3, tzinfo=UTC)
+
+
+def test_whois_only_placeholder_is_none(monkeypatch):
+    monkeypatch.setattr(da.whois, "whois", lambda domain, **kw: _Entry([datetime(1970, 1, 1)]))
+    assert whois_creation_date("example.com") is None
 
 
 def test_whois_single_naive_datetime(monkeypatch):
@@ -180,7 +236,7 @@ def test_rate_limited_uses_short_ttl(router):
     t = [1000.0]
     cache = TTLCache(":memory:", now=lambda: t[0])
     whois_calls = []
-    lk = DomainAgeLookup(cache, httpx.Client(), whois_fn=lambda d: whois_calls.append(d),
+    lk = DomainAgeLookup(cache, _CLIENT, whois_fn=lambda d: whois_calls.append(d),
                          now=lambda: NOW)
     info = lk.lookup("example.com")
     assert info.error == "rate_limited" and info.source == "none"
@@ -247,7 +303,7 @@ def test_invalid_domains_rejected_without_any_access(arg, router):
 
     c = Boom(":memory:")
     whois_calls = []
-    lk = DomainAgeLookup(c, httpx.Client(), whois_fn=lambda d: whois_calls.append(d),
+    lk = DomainAgeLookup(c, _CLIENT, whois_fn=lambda d: whois_calls.append(d),
                          now=lambda: NOW)
     info = lk.lookup(arg)
     c.close()
@@ -276,7 +332,7 @@ def test_cache_errors_are_survived(router):
     router.get(IANA_RDAP_BOOTSTRAP).respond(json=BOOT)
     router.get(RDAP_URL).respond(json=rdap_body())
     c = _BrokenCache(":memory:")
-    lk = DomainAgeLookup(c, httpx.Client(), whois_fn=lambda d: None, now=lambda: NOW)
+    lk = DomainAgeLookup(c, _CLIENT, whois_fn=lambda d: None, now=lambda: NOW)
     info = lk.lookup("example.com")
     c.close()
     assert info.source == "rdap" and info.age_days == pytest.approx(10.0)
@@ -397,7 +453,7 @@ def test_bootstrap_failure_is_cached_for_five_minutes(router):
     boot_route = router.get(IANA_RDAP_BOOTSTRAP).mock(side_effect=httpx.ConnectTimeout("t"))
     t = [1000.0]
     cache = TTLCache(":memory:", now=lambda: t[0])
-    lk = DomainAgeLookup(cache, httpx.Client(), whois_fn=lambda d: None, now=lambda: NOW)
+    lk = DomainAgeLookup(cache, _CLIENT, whois_fn=lambda d: None, now=lambda: NOW)
     assert BOOTSTRAP_FAILURE_TTL == 300
     lk.lookup("one.com")
     assert boot_route.call_count == 1
@@ -422,7 +478,14 @@ def test_rdap_redirect_is_not_followed(cache, router):
 def test_client_event_hooks_untouched(cache, router):
     router.get(IANA_RDAP_BOOTSTRAP).respond(json=BOOT)
     router.get(RDAP_URL).respond(json=rdap_body())
-    client = httpx.Client()
+    client = httpx.Client()  # own client: asserts on its event_hooks
+    try:
+        _hooks_untouched(router, cache, client)
+    finally:
+        client.close()
+
+
+def _hooks_untouched(router, cache, client):
     before = {k: list(v) for k, v in client.event_hooks.items()}
     DomainAgeLookup(cache, client, whois_fn=lambda d: None, now=lambda: NOW).lookup("example.com")
     assert {k: list(v) for k, v in client.event_hooks.items()} == before
