@@ -68,6 +68,20 @@ def _backslashes_to_slashes(s: str) -> str:
     return s[:cut].replace("\\", "/") + s[cut:]
 
 
+_TAB_CR_LF_RE = re.compile("[\t\r\n]")
+_C0_EDGE_RE = re.compile(r"^[\x00-\x20]+|[\x00-\x20]+$")
+
+
+def browser_url_reference(raw: str) -> str:
+    """Prepare an HTTP ``Location`` value the way a browser reads it, before joining it to a base.
+
+    Removes ASCII tab/CR/LF anywhere, strips leading/trailing C0 controls and spaces, and turns
+    backslashes into slashes in the part before the first ``?`` or ``#``.
+    """
+    s = _C0_EDGE_RE.sub("", _TAB_CR_LF_RE.sub("", raw))
+    return _backslashes_to_slashes(s)
+
+
 def _to_ascii_host(host: str) -> str:
     if host.isascii():
         return host
