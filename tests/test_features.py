@@ -169,7 +169,7 @@ def test_domain_age_missing_is_nan_and_flag():
     assert math.isnan(f.values["domain_age_days"]) and f.values["domain_age_unknown"] == 1.0
 
 
-@pytest.mark.parametrize("age", [math.inf, -math.inf, math.nan])
+@pytest.mark.parametrize("age", [math.inf, -math.inf, math.nan, 10**400])
 def test_nonfinite_age_treated_as_unknown(age):
     f = fv("http://a.com/", age=age)
     assert math.isnan(f.values["domain_age_days"]) and f.values["domain_age_unknown"] == 1.0
@@ -228,3 +228,42 @@ def test_deterministic():
     args = (n, p, RedirectResult.not_followed(n.normalized), DomainInfo.unknown("x"), RES)
     a, b = extract_features(*args), extract_features(*args)
     assert _same(a.values, b.values) and a.evidence == b.evidence
+
+
+BRAND_KEYS = ("brand_in_subdomain", "brand_in_path", "brand_in_domain_label")
+
+
+@pytest.mark.parametrize("raw", [
+    "https://kakaobank.com/",
+    "https://www.kakaobank.com/login",
+    "https://sub.kakaobank.com/kakaobank?q=kakaobank",
+    "https://kakaobank.kakaobank.com/",
+])
+def test_owner_brand_keyword_superset_not_flagged(raw):
+    f = fv(raw)
+    assert all(f.values[k] == 0.0 for k in BRAND_KEYS)
+    assert not any(k in f.evidence for k in BRAND_KEYS)
+
+
+def test_kakaobank_lookalike_subdomain_still_flagged():
+    f = fv("http://kakaobank.com.evil.example/")
+    assert f.values["brand_in_subdomain"] == 1.0
+    # registered domain owned by nobody, so nothing is suppressed; the first brand in
+    # brands.yaml order that matches the token "kakaobank" is reported
+    first = next(b.name for b in RES.brands if "kakao" in b.keywords or "kakaobank" in b.keywords)
+    assert f.evidence["brand_in_subdomain"] == first
+
+
+def test_unrelated_brand_still_reported_on_owned_domain():
+    f = fv("https://www.kakaobank.com/paypal/login")
+    assert f.values["brand_in_path"] == 1.0 and f.evidence["brand_in_path"] == "PayPal"
+
+
+def test_official_domain_shapes_never_flagged_for_every_brand():
+    for brand in RES.brands:
+        kw = brand.keywords[0]
+        for d in brand.official_domains:
+            for raw in (f"https://{d}/", f"https://www.{d}/login",
+                        f"https://sub.{d}/{kw}?q={kw}", f"https://{kw}.{d}/"):
+                f = fv(raw)
+                assert all(f.values[k] == 0.0 for k in BRAND_KEYS), (raw, f.evidence)

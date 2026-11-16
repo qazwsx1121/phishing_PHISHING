@@ -48,12 +48,25 @@ def _variants(text: str) -> tuple[str, ...]:
 
 
 def _brand_match(texts: Iterable[str], parts: URLParts, resources: Resources) -> str | None:
-    """Name of the first brand (file order) found in any text and not owning the site."""
+    """Name of the first brand (file order) found in any text and not owning the site.
+
+    Keywords of a non-owner brand that are substrings of an owner brand's keyword
+    (``kakao`` inside ``kakaobank`` on kakaobank.com) are ignored.
+    """
     texts = tuple(texts)
+    owner_keywords = [
+        k
+        for brand in resources.brands
+        if parts.registered_domain in brand.official_domains
+        for k in brand.keywords
+    ]
     for brand in resources.brands:
         if parts.registered_domain in brand.official_domains:
             continue
-        if any(match_keywords(t, brand.keywords) for t in texts):
+        found: set[str] = set()
+        for t in texts:
+            found |= match_keywords(t, brand.keywords)
+        if any(not any(k in ok for ok in owner_keywords) for k in found):
             return brand.name
     return None
 
@@ -83,8 +96,11 @@ def extract_features(
     }
 
     tld = parts.suffix.rsplit(".", 1)[-1] if parts.suffix else ""
-    age = domain.age_days
-    age_known = age is not None and math.isfinite(age)
+    try:
+        age = float(domain.age_days)  # type: ignore[arg-type]
+        age_known = math.isfinite(age)
+    except (OverflowError, TypeError, ValueError):
+        age, age_known = math.nan, False
 
     values: dict[str, float] = {
         "url_length": len(url.normalized),
@@ -110,7 +126,7 @@ def extract_features(
         "is_risky_tld": bool(tld) and tld in resources.risky_tlds,
         "host_entropy": shannon_entropy(parts.domain or host),
         "has_embedded_url": _EMBEDDED_URL.search(f"{url.path}?{url.query}") is not None,
-        "domain_age_days": float(age) if age_known else math.nan,
+        "domain_age_days": age if age_known else math.nan,
         "domain_age_unknown": not age_known,
     }
     floats = {name: float(values[name]) for name in FEATURE_NAMES}
