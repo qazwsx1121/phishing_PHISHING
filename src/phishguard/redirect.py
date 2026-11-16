@@ -29,6 +29,13 @@ ResolveFn = Callable[[str], list[str]]
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 _HEAD_FALLBACK_STATUSES = frozenset({400, 403, 405, 501})
 _NAT64_PREFIX = ipaddress.IPv6Network("64:ff9b::/96")
+# IPv6 ranges that are never a public destination, whatever Python's is_global says:
+# RFC 8215 local-use NAT64, SIIT (::ffff:0:0:0/96), deprecated IPv4-compatible (::/96),
+# deprecated site-local (fec0::/10).
+_NEVER_PUBLIC_V6 = tuple(
+    ipaddress.IPv6Network(n)
+    for n in ("64:ff9b:1::/48", "::ffff:0:0:0/96", "::/96", "fec0::/10")
+)
 
 
 def default_resolve(host: str) -> list[str]:
@@ -48,7 +55,7 @@ def is_public_address(text: str) -> bool:
     are judged by the embedded IPv4 address.
     """
     try:
-        ip = ipaddress.ip_address(text.partition("%")[0])
+        ip = ipaddress.ip_address(text)
     except ValueError:
         return False
     if isinstance(ip, ipaddress.IPv6Address):
@@ -56,8 +63,10 @@ def is_public_address(text: str) -> bool:
         if embedded is None and ip in _NAT64_PREFIX:
             embedded = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
         if embedded is not None:
-            return embedded.is_global
-    return ip.is_global
+            return embedded.is_global and not embedded.is_multicast
+        if any(ip in net for net in _NEVER_PUBLIC_V6):
+            return False
+    return ip.is_global and not ip.is_multicast
 
 
 class RedirectResolver:
@@ -125,7 +134,8 @@ class RedirectResolver:
 
             try:
                 status, location = self._fetch(current.normalized)
-            except (httpx.HTTPError, httpx.InvalidURL):
+            except (httpx.HTTPError, httpx.InvalidURL, ValueError):
+                # ValueError covers UnicodeError / idna.IDNAError for invalid A-labels.
                 return fail("network_error")
 
             if status not in _REDIRECT_STATUSES or not location:
@@ -136,7 +146,8 @@ class RedirectResolver:
                     urljoin(current.normalized, browser_url_reference(location)),
                     refang=False,
                 )
-            except InvalidURLError:
+            except (InvalidURLError, ValueError):
+                # ValueError: urljoin("Invalid IPv6 URL"), NFKC netloc delimiters, idna errors.
                 return fail("invalid_location")
             hops.append(RedirectHop(current.normalized, status))
             if nxt.normalized in seen:

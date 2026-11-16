@@ -7,7 +7,7 @@ import pytest
 import respx
 
 from phishguard.config import load_resources
-from phishguard.models import RedirectHop
+from phishguard.models import RedirectHop, RedirectResult
 from phishguard.normalize import normalize_url
 from phishguard.redirect import (
     BROWSER_UA,
@@ -68,6 +68,15 @@ def test_public_addresses(text):
         "::1",
         "fe80::1",
         "fe80::1%eth0",
+        "8.8.8.8%x",
+        "64:ff9b:1::a00:1",
+        "::ffff:0:a00:1",
+        "::ffff:0:7f00:1",
+        "::7f00:1",
+        "::a00:1",
+        "fec0::1",
+        "224.0.0.1",
+        "ff02::1",
         "fc00::1",
         "::ffff:10.0.0.1",
         "64:ff9b::a00:1",
@@ -374,6 +383,79 @@ def test_backslash_after_query_is_kept(resolver, router):
     )
     r = resolve(resolver, "https://bit.ly/a")
     assert r.final_url == "https://x.example/p?next=a\\b"
+
+
+# ---------------------------------------------------------------- never raises (fix round 1)
+
+_BAD_LOCATIONS = [
+    "https://evil.example]/x",
+    "https://evil.example[@bit.ly/",
+    "//[evil",
+    "https://[::1/x",
+]
+
+
+@pytest.mark.parametrize("location", _BAD_LOCATIONS)
+def test_malformed_netloc_location_is_invalid(resolver, router, location):
+    router.head("https://bit.ly/a").respond(302, headers={"Location": location})
+    r = resolve(resolver, "https://bit.ly/a")
+    assert r.error == "invalid_location" and not r.complete
+    assert r.final_url == "https://bit.ly/a" and r.hops == ()
+
+
+def test_utf8_nfkc_delimiter_location_does_not_raise(resolver, router):
+    raw = "https://ex℀ample.com@bit.ly/".encode()
+    router.head("https://bit.ly/a").mock(
+        return_value=httpx.Response(302, headers=[(b"Location", raw)])
+    )
+    r = resolve(resolver, "https://bit.ly/a")
+    assert r.error == "invalid_location" and not r.complete
+
+
+_BAD_ALABELS = ["https://xn--zz.bit.ly/a", "https://xn--bit-ly.bit.ly/a"]
+
+
+@pytest.mark.parametrize("url", _BAD_ALABELS)
+def test_invalid_alabel_input_url_is_network_error(resolver, router, url):
+    r = resolve(resolver, url)
+    assert r.error == "network_error" and not r.complete
+    assert r.final_url == url
+    assert not router.calls
+
+
+@pytest.mark.parametrize("target", _BAD_ALABELS)
+def test_invalid_alabel_location_target_is_network_error(resolver, router, target):
+    router.head("https://bit.ly/a").respond(302, headers={"Location": target})
+    r = resolve(resolver, "https://bit.ly/a")
+    assert r.error == "network_error" and not r.complete
+    # httpx itself rejects the invalid A-label while building its redirect request, so the
+    # failure surfaces during the request to bit.ly; either way it is a contained network_error.
+    assert requested_hosts(router) == {"bit.ly"}
+
+
+def test_fuzzed_locations_never_raise(resolver, router):
+    import random
+
+    rng = random.Random(42)
+    alphabet = (
+        list("[]@\\%/?#:.&=;")
+        + ["xn--", "xn--zz", "bit.ly", "evil.example", "https://", "//", "http:", "℀", "é", "\u0000", "\t", "\r", "\n", "\x7f", "‮"]
+        + [chr(c) for c in range(0, 32)]
+    )
+    for _ in range(300):
+        text = "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 12)))
+        raw = text.encode("utf-8")
+        if b"\r" in raw or b"\n" in raw:
+            raw = raw.replace(b"\r", b"").replace(b"\n", b"")
+        router.reset()
+        router.head("https://bit.ly/a").mock(
+            return_value=httpx.Response(302, headers=[(b"Location", raw)])
+        )
+        # Everything else (including later hops) is a shortener 200, never a real host.
+        router.head(host__regex=r".*\.?(bit\.ly|me2\.do|han\.gl)$").respond(200)
+        result = resolver.resolve(normalize_url("https://bit.ly/a"))
+        assert isinstance(result, RedirectResult), text
+        assert all(is_shortener_host(h, SHORTENERS) for h in requested_hosts(router))
 
 
 # ---------------------------------------------------------------- live
